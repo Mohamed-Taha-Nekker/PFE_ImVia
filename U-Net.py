@@ -3,6 +3,7 @@ from tensorflow.keras import layers
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras import Model
 
+
 def encode(inputs):
     conv1 = layers.Conv2D(64, 3, activation = 'relu')(inputs)
     conv1 = layers.Conv2D(64, 3, activation = 'relu')(conv1)
