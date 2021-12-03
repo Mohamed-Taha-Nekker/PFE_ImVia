@@ -1,140 +1,330 @@
-import tensorflow as tf
+import cv2 as cv
 import numpy as np
+import nibabel
 import os
-import sys
-import tqdm
 from tqdm import tqdm
-from tensorflow.keras import layers
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras import Model
-from keras.models import Model, load_model
-from keras.layers import Input
-from keras.layers.core import Dropout, Lambda
-from keras.layers.convolutional import Conv2D, Conv2DTranspose
-from keras.layers.pooling import MaxPooling2D
-from keras.layers.merge import concatenate
-from keras.callbacks import EarlyStopping, ModelCheckpoint
-from keras import backend as K
-
-import sklearn.model_selection     # For using KFold
-import keras.preprocessing.image   # For using image generation
-import datetime                    # To measure running time
-import skimage.transform           # For resizing images
-import skimage.morphology          # For using image labeling
-
-import matplotlib.pyplot as plt    # Python 2D plotting library
-import random
-from tqdm import tqdm
-from skimage.io import imread, imshow, imread_collection, concatenate_images
+from skimage.io import imread, imshow
 from skimage.transform import resize
-from skimage.morphology import label
+from PIL import Image
+import matplotlib.pyplot as plt
+from tensorflow.keras.layers import (Input, Lambda, Conv2D, Dropout, MaxPooling2D,
+                                    Conv2DTranspose, concatenate)
 
+from tensorflow.keras import Model
+from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, TensorBoard
 
+TRAIN_PATH = 'ims/train/'
+TEST_PATH = 'ims/test/'
 
-TRAIN_PATH='ims/train/'
-TEST_PATH='ims/test/'
+IMG_WIDTH = 128
+IMG_HEIGHT = 128
+IMG_CHANNELS = 3
 
-train_ids = list()
-for root, dirs, files in os.walk("/ims/train/", topdown=False):
-    for name in dirs:
-        train_ids.append(os.path.join(root, name))
-test_ids = list()
-for root, dirs, files in os.walk("/ims/test/", topdown=False):
-    for name in dirs:
-        test_ids.append(os.path.join(root, name))
+train_ids = sorted(os.listdir(TRAIN_PATH))
 
-IMG_HEIGHT=256
-IMG_WIDTH=256
-IMG_CHANNELS=3
+test_ids = sorted(os.listdir(TEST_PATH))
+
+print(len(train_ids), len(test_ids))
 
 X_train = np.zeros((len(train_ids), IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS), dtype=np.uint8)
-Y_train = np.zeros((len(train_ids), IMG_HEIGHT, IMG_WIDTH, 1), dtype=np.bool)
+y_train = np.zeros((len(train_ids), IMG_HEIGHT, IMG_WIDTH, 1), dtype=np.bool)
 
-print('Get train images and masks')
-sys.stdout.flush()
+print('Resizing training images and masks')
 for n, id_ in tqdm(enumerate(train_ids), total=len(train_ids)):
-    path = TRAIN_PATH + id_
-    img = imread(path + '/images/' + id_ + '.png')[:,:,:IMG_CHANNELS]
-    img = resize(img, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True)
-    X_train[n] = img
-    mask = np.zeros((IMG_HEIGHT, IMG_WIDTH, 1), dtype=np.bool)
-    for mask_file in next(os.walk(path + '/masks/'))[2]:
-        mask_ = imread(path + '/masks/' + mask_file)
-        mask_ = np.expand_dims(resize(mask_, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True), axis=-1)
-        mask = np.maximum(mask, mask_)
-    Y_train[n] = mask
 
-# And the same for test images
+    path_im = TRAIN_PATH + id_ + '/images/'
+    path_msk = TRAIN_PATH + id_ + '/masks/'
+    r = os.listdir(path_im)
+    q = os.listdir(path_msk)
+
+    for i, j in zip(r, q):
+
+        # Afficher l'image et le masque en cours de traitement
+        print(i)
+        print(j)
+
+        image_filename = os.path.join(path_im, i)
+        mask_filename = os.path.join(path_msk, j)
+
+        # Lire les images et les masques .nii
+
+        img = nibabel.load(image_filename)
+        msk = nibabel.load(mask_filename)
+
+        # Lire ces fichiers sous forme de matrices
+
+        img = img.get_fdata()
+        msk = msk.get_fdata()
+
+        # Parcourir chaque slice des images et masques
+
+        for k in range(img.shape[2]):
+
+            im = np.float32(img[:, :, k])
+            ms = np.float32(msk[:, :, k])
+
+            # Transformation en images RGB
+
+            colored_image = cv.cvtColor(im, cv.COLOR_GRAY2RGB)
+            colored_mask = cv.cvtColor(ms, cv.COLOR_GRAY2RGB)
+
+            # Normalisation
+
+            norm = np.zeros((800, 800))
+
+            colored_image = cv.normalize(colored_image, norm, 0, 255, cv.NORM_MINMAX)
+            colored_mask = cv.normalize(colored_mask, norm, 0, 255, cv.NORM_MINMAX)
+
+            colored_image = resize(colored_image, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True)
+            X_train[n] = colored_image
+
+            colored_mask = np.expand_dims(resize(colored_mask, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True), axis = -2)
+            #colored_mask = np.squeeze(colored_mask, axis = 1).shape
+
+            # !!!!  I SHOULD REDUCE THE DIMENTION TO (128,128,1) !!!!
+
+            y_train[n] = colored_mask
+
+
+i = 10
+plt.subplot(121)
+imshow(X_train[i])
+plt.title('Image')
+plt.subplot(122)
+imshow(np.squeeze(y_train[i]))
+plt.title('Mask')
+plt.show()
+
 X_test = np.zeros((len(test_ids), IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS), dtype=np.uint8)
 sizes_test = []
-print('Getting and resizing test images ... ')
-sys.stdout.flush()
+
+# Test images
+print('Resizing test images and masks')
 for n, id_ in tqdm(enumerate(test_ids), total=len(test_ids)):
-    path = TEST_PATH + id_
-    img = imread(path + '/images/' + id_ + '.png')[:,:,:IMG_CHANNELS]
-    sizes_test.append([img.shape[0], img.shape[1]])
-    img = resize(img, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True)
-    X_test[n] = img
 
-def encode(inputs):
-    conv1 = layers.Conv2D(64, 3, activation = 'relu')(inputs)
-    conv1 = layers.Conv2D(64, 3, activation = 'relu')(conv1)
-    pool1 = layers.MaxPooling2D(pool_size=(2, 2))(conv1)
-    conv2 = layers.Conv2D(128, 3, activation = 'relu')(pool1)
-    conv2 = layers.Conv2D(128, 3, activation = 'relu')(conv2)
-    pool2 = layers.MaxPooling2D(pool_size=(2, 2))(conv2)
-    conv3 = layers.Conv2D(256, 3, activation = 'relu')(pool2)
-    conv3 = layers.Conv2D(256, 3, activation = 'relu')(conv3)
-    pool3 = layers.MaxPooling2D(pool_size=(2, 2))(conv3)
-    conv4 = layers.Conv2D(512, 3, activation = 'relu')(pool3)
-    conv4 = layers.Conv2D(512, 3, activation = 'relu')(conv4)
-    pool4 = layers.MaxPooling2D(pool_size=(2, 2))(conv4)
-    conv5 = layers.Conv2D(1024, 3, activation = 'relu')(pool4)
-    conv5 = layers.Conv2D(1024, 3, activation = 'relu')(conv5)
-    return conv5, conv4, conv3, conv2, conv1
+    path_im = TEST_PATH + id_ + '/images/'
+    r = os.listdir(path_im)
 
-def decode(conv5, conv4, conv3, conv2, conv1, num_classes):
-    up6 = layers.Conv2DTranspose(512, 2, strides=(2, 2))(conv5)
-    crop4 = layers.Cropping2D(4)(conv4)
-    concat6 = layers.Concatenate(axis=3)([crop4,up6])
-    conv6 = layers.Conv2D(512, 3, activation = 'relu')(concat6)
-    conv6 = layers.Conv2D(512, 3, activation = 'relu')(conv6)
+    for i in r:
 
-    up7 = layers.Conv2DTranspose(256, 2, strides=(2, 2))(conv6)
-    crop3 = layers.Cropping2D(16)(conv3)
-    concat7 = layers.Concatenate(axis=3)([crop3,up7])
-    conv7 = layers.Conv2D(256, 3, activation = 'relu')(concat7)
-    conv7 = layers.Conv2D(256, 3, activation = 'relu')(conv7)
+        # Afficher l'image en cours de traitement
+        print(i)
 
-    up8 = layers.Conv2DTranspose(128, 2, strides=(2, 2))(conv7)
-    crop2 = layers.Cropping2D(40)(conv2)
-    concat8 = layers.Concatenate(axis=3)([crop2,up8])
-    conv8 = layers.Conv2D(128, 3, activation = 'relu')(concat8)
-    conv8 = layers.Conv2D(128, 3, activation = 'relu')(conv8)
+        image_filename = os.path.join(path_im, i)
 
-    up9 = layers.Conv2DTranspose(64, 2, strides=(2, 2))(conv8)
-    crop1 = layers.Cropping2D(88)(conv1)
-    concat9 = layers.Concatenate(axis=3)([crop1,up9])
-    conv9 = layers.Conv2D(64, 3, activation = 'relu')(concat9)
-    conv9 = layers.Conv2D(64, 3, activation = 'relu')(conv9)
-    conv10 = layers.Conv2D(num_classes, 1)(conv9)
-    conv10 = layers.Softmax(axis=-1)(conv10)
-    return conv10
+        # Lire les images .nii
 
-def create_unet(input_size=(572,572,1), num_classes=2):
-    inputs = layers.Input(input_size)
-    conv5, conv4, conv3, conv2, conv1 = encode(inputs)
-    conv10 = decode(conv5, conv4, conv3, conv2, conv1, num_classes)
-    model = Model(inputs, conv10)
-    model.compile(optimizer = Adam(lr=1e-4), loss='categorical_crossentropy')
-    return model
+        img = nibabel.load(image_filename)
 
-model = create_unet()
+        # Lire ces fichiers sous forme de matrices
+
+        img = img.get_fdata()
+
+        # Parcourir chaque slice des images
+
+        for k in range(img.shape[2]):
+            im = np.float32(img[:, :, k])
+
+            # Transformation en images RGB
+
+            colored_image = cv.cvtColor(im, cv.COLOR_GRAY2RGB)
+
+            # Normalisation
+
+            norm = np.zeros((800, 800))
+
+            colored_image = cv.normalize(colored_image, norm, 0, 255, cv.NORM_MINMAX)
+
+            colored_image = resize(colored_image, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True)
+            X_test[n] = colored_image
+
+
+
+
+# Jusqu'à ici on est capable de lire un fichier niftii et le transformer en RGB.
+# On a également modifié la taille des images pour qu'elles soient convenables à l'entrée de U_Net
+
+
+
+
+# Inputs
+inputs = Input((IMG_WIDTH, IMG_HEIGHT, IMG_CHANNELS))
+# Change integer to float and also scale pixel values
+s = Lambda(lambda x: x/255.0)(inputs)
+
+# Contraction/Encoder path
+# Block 1
+c1 = Conv2D(filters=16, kernel_size=(3,3),
+                            activation='relu', kernel_initializer='he_normal',
+                           padding='same')(s)
+c1 = Dropout(0.1)(c1)
+c1 = Conv2D(filters=16, kernel_size=(3,3),
+                            activation='relu', kernel_initializer='he_normal',
+                           padding='same')(c1)
+p1 = MaxPooling2D(pool_size=(2,2))(c1)
+# Block 2
+c2 = Conv2D(filters=32, kernel_size=(3,3),
+                            activation='relu', kernel_initializer='he_normal',
+                           padding='same')(p1)
+c2 = Dropout(0.1)(c2)
+c2 = Conv2D(filters=32, kernel_size=(3,3),
+                            activation='relu', kernel_initializer='he_normal',
+                           padding='same')(c2)
+p2 = MaxPooling2D(pool_size=(2,2))(c2)
+# Block 3
+c3 = Conv2D(filters=64, kernel_size=(3,3),
+                            activation='relu', kernel_initializer='he_normal',
+                           padding='same')(p2)
+c3 = Dropout(0.2)(c3)
+c3 = Conv2D(filters=64, kernel_size=(3,3),
+                            activation='relu', kernel_initializer='he_normal',
+                           padding='same')(c3)
+p3 = MaxPooling2D(pool_size=(2,2))(c3)
+# Block 4
+c4 = Conv2D(filters=128, kernel_size=(3,3),
+                            activation='relu', kernel_initializer='he_normal',
+                           padding='same')(p3)
+c4 = Dropout(0.2)(c4)
+c4 = Conv2D(filters=128, kernel_size=(3,3),
+                            activation='relu', kernel_initializer='he_normal',
+                           padding='same')(c4)
+p4 = MaxPooling2D(pool_size=(2,2))(c4)
+# Block 5
+c5 = Conv2D(filters=256, kernel_size=(3,3),
+                            activation='relu', kernel_initializer='he_normal',
+                           padding='same')(p4)
+c5 = Dropout(0.3)(c5)
+c5 = Conv2D(filters=256, kernel_size=(3,3),
+                            activation='relu', kernel_initializer='he_normal',
+                           padding='same')(c5)
+
+# Expansion/Decoder path
+# Block 6
+u6 = Conv2DTranspose(filters=128, kernel_size=(2,2), strides = (2,2), padding='same')(c5)
+u6 = concatenate([u6, c4])
+c6 = Conv2D(filters=128, kernel_size=(3,3),
+                            activation='relu', kernel_initializer='he_normal',
+                           padding='same')(u6)
+c6 = Dropout(0.2)(c6)
+c6 = Conv2D(filters=128, kernel_size=(3,3),
+                            activation='relu', kernel_initializer='he_normal',
+                           padding='same')(c6)
+
+# Block 7
+u7 = Conv2DTranspose(filters=64, kernel_size=(2,2), strides = (2,2), padding='same')(c6)
+u7 = concatenate([u7, c3])
+c7 = Conv2D(filters=64, kernel_size=(3,3),
+                            activation='relu', kernel_initializer='he_normal',
+                           padding='same')(u7)
+c7 = Dropout(0.2)(c7)
+c7 = Conv2D(filters=64, kernel_size=(3,3),
+                            activation='relu', kernel_initializer='he_normal',
+                           padding='same')(c7)
+
+# Block 8
+u8 = Conv2DTranspose(filters=32, kernel_size=(2,2), strides = (2,2), padding='same')(c7)
+u8 = concatenate([u8, c2])
+c8 = Conv2D(filters=32, kernel_size=(3,3),
+                            activation='relu', kernel_initializer='he_normal',
+                           padding='same')(u8)
+c8 = Dropout(0.1)(c8)
+c8 = Conv2D(filters=32, kernel_size=(3,3),
+                            activation='relu', kernel_initializer='he_normal',
+                           padding='same')(c8)
+
+# Block 9
+u9 = Conv2DTranspose(filters=16, kernel_size=(2,2), strides = (2,2), padding='same')(c8)
+u9 = concatenate([u9, c1])
+c9 = Conv2D(filters=16, kernel_size=(3,3),
+                            activation='relu', kernel_initializer='he_normal',
+                           padding='same')(u9)
+c9 = Dropout(0.1)(c9)
+c9 = Conv2D(filters=16, kernel_size=(3,3),
+                            activation='relu', kernel_initializer='he_normal',
+                           padding='same')(c9)
+# Outputs
+outputs = Conv2D(filters=1, kernel_size=(1,1),
+                            activation='sigmoid')(c9)
+
+model = Model(inputs=[inputs], outputs=[outputs])
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 model.summary()
 
-callbacks=[tf.keras.callbacks.EarlyStopping(patience=2,monitor='val_loss'),
-           tf.keras.callbacks.TensorBoard(log_dir='logs')]
+# Callbacks
+callbacks_list = [ModelCheckpoint('nuclei_model.h5', verbose=1, save_best_only=True),
+                  EarlyStopping(patience=2, monitor='val_loss'),
+                  TensorBoard(log_dir='logs')]
 
-model.save('Semantic segmentation model with U-Net & TF.h5')
+model_results = model.fit(X_train, y_train, validation_split=0.1, batch_size=32,
+                          epochs=25, callbacks=callbacks_list)
 
-#results=model.fit(X_train,Y_train,validation_split=0.1,batch_size=32,epochs=28,callbacks=callbacks)
+plt.figure(figsize=[10, 6])
+for key in model_results.history.keys():
+    plt.plot(model_results.history[key], label=key)
+
+plt.legend()
+plt.show()
+
+preds_train = model.predict(X_train[:int(X_train.shape[0]*0.9)], verbose=1)
+y_true_train = y_train[:int(y_train.shape[0]*0.9)]
+preds_val = model.predict(X_train[int(X_train.shape[0]*0.9):], verbose=1)
+y_true_val = y_train[int(y_train.shape[0]*0.9):]
+preds_test = model.predict(X_test, verbose=1)
+
+# Thresholding
+preds_train_t = (preds_train > 0.5).astype(np.uint8)
+preds_val_t = (preds_val > 0.5).astype(np.uint8)
+preds_test_t = (preds_test > 0.5).astype(np.uint8)
+
+
+# Show images
+def show_images(i, ti, orgimg, y_true, preds, preds_t):
+    plt.figure(figsize=(8,8))
+    plt.subplot(221)
+    imshow(orgimg[i])
+    plt.title('Image to be Segmented')
+    plt.subplot(222)
+    imshow(y_true[ti])
+    plt.title('Segmentation Ground Truth')
+    plt.subplot(223)
+    imshow(preds[ti])
+    plt.title('Predicted Segmentation')
+    plt.subplot(224)
+    imshow(preds_t[ti])
+    plt.title('Thresholded Segmentation')
+    plt.show()
+
+
+# On Train
+# train max 602
+i = 602
+show_images(i, i, X_train, y_true_train, preds_train, preds_train_t)
+
+
+# On Val
+# i = 603:669
+i = 660
+show_images(i, i-603,  X_train, y_true_val, preds_val, preds_val_t)
+
+# On Test
+# Ground Truths Not Available
+i = 0
+plt.figure(figsize=(8,8))
+plt.subplot(221)
+imshow(X_test[i])
+plt.title('Image to be Segmented')
+plt.subplot(222)
+plt.title('Segmentation Ground Truth NA')
+plt.subplot(223)
+imshow(preds_test[i])
+plt.title('Predicted Segmentation')
+plt.subplot(224)
+imshow(preds_test_t[i])
+plt.title('Thresholded Segmentation')
+plt.show()
+
+
+print("Evaluate on val data")
+results = model.evaluate(X_train[int(X_train.shape[0]*0.9):], y_train[int(y_train.shape[0]*0.9):], batch_size=128)
+print("Test Loss:", results[0])
+print("Test Acc :", results[1]*100, "%")
