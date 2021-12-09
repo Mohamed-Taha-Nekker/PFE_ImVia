@@ -78,11 +78,8 @@ for n, id_ in tqdm(enumerate(train_ids), total=len(train_ids)):
             colored_image = resize(colored_image, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True)
             X_train[n] = colored_image
 
-            colored_mask = np.expand_dims(resize(colored_mask, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True), axis = -2)
-            #colored_mask = np.squeeze(colored_mask, axis = 1).shape
-
-            # !!!!  I SHOULD REDUCE THE DIMENTION TO (128,128,1) !!!!
-
+            colored_mask = cv.cvtColor(colored_mask, cv.COLOR_RGB2GRAY)
+            colored_mask = np.expand_dims(resize(colored_mask, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True), axis = -1)
             y_train[n] = colored_mask
 
 
@@ -93,7 +90,8 @@ plt.title('Image')
 plt.subplot(122)
 imshow(np.squeeze(y_train[i]))
 plt.title('Mask')
-plt.show()
+plt.savefig('demo1.jpg', bbox_inches='tight')
+
 
 X_test = np.zeros((len(test_ids), IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS), dtype=np.uint8)
 sizes_test = []
@@ -263,7 +261,7 @@ for key in model_results.history.keys():
     plt.plot(model_results.history[key], label=key)
 
 plt.legend()
-plt.show()
+plt.savefig('demo2.jpg', bbox_inches='tight')
 
 preds_train = model.predict(X_train[:int(X_train.shape[0]*0.9)], verbose=1)
 y_true_train = y_train[:int(y_train.shape[0]*0.9)]
@@ -271,12 +269,15 @@ preds_val = model.predict(X_train[int(X_train.shape[0]*0.9):], verbose=1)
 y_true_val = y_train[int(y_train.shape[0]*0.9):]
 preds_test = model.predict(X_test, verbose=1)
 
+#--------Jusqu'a ici tout marche +/- bien------------
+
+
 # Thresholding
 preds_train_t = (preds_train > 0.5).astype(np.uint8)
 preds_val_t = (preds_val > 0.5).astype(np.uint8)
 preds_test_t = (preds_test > 0.5).astype(np.uint8)
 
-
+'''
 # Show images
 def show_images(i, ti, orgimg, y_true, preds, preds_t):
     plt.figure(figsize=(8,8))
@@ -292,12 +293,12 @@ def show_images(i, ti, orgimg, y_true, preds, preds_t):
     plt.subplot(224)
     imshow(preds_t[ti])
     plt.title('Thresholded Segmentation')
-    plt.show()
+    plt.savefig('demo3.jpg', bbox_inches='tight')
 
 
 # On Train
 # train max 602
-i = 602
+i = 20
 show_images(i, i, X_train, y_true_train, preds_train, preds_train_t)
 
 
@@ -328,3 +329,7 @@ print("Evaluate on val data")
 results = model.evaluate(X_train[int(X_train.shape[0]*0.9):], y_train[int(y_train.shape[0]*0.9):], batch_size=128)
 print("Test Loss:", results[0])
 print("Test Acc :", results[1]*100, "%")
+'''
+
+
+
