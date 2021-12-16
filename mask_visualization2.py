@@ -40,7 +40,7 @@ for i, j in zip(images, masks):
 
     for k in range(img.shape[2]):
 
-        # Forme du nom de l'image de sortie
+        # La Forme du nom de l'image de sortie
 
         OUTPUT_NAME = n + "_" + str(k) + "_output.jpg"
 
