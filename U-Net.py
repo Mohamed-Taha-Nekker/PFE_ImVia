@@ -86,8 +86,8 @@ for n, id_ in tqdm(enumerate(train_ids), total=len(train_ids)):
             colored_mask = np.expand_dims(resize(colored_mask, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True), axis = -1)
             y_train[n] = colored_mask
 
-
-i = 10
+'''
+i = 5
 plt.subplot(121)
 imshow(X_train[i])
 plt.title('Image')
@@ -95,6 +95,7 @@ plt.subplot(122)
 imshow(np.squeeze(y_train[i]))
 plt.title('Mask')
 plt.savefig('demo1.jpg', bbox_inches='tight')
+'''
 
 
 X_test = np.zeros((len(test_ids), IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS), dtype=np.uint8)
@@ -151,6 +152,7 @@ for n, id_ in tqdm(enumerate(test_ids), total=len(test_ids)):
 
 # Inputs
 inputs = Input((IMG_WIDTH, IMG_HEIGHT, IMG_CHANNELS))
+input_dim = X_train.shape[1]
 # Change integer to float and also scale pixel values
 s = Lambda(lambda x: x/255.0)(inputs)
 
@@ -250,10 +252,13 @@ outputs = Conv2D(filters=1, kernel_size=(1,1),
 
 model = Model(inputs=[inputs], outputs=[outputs])
 
-epochs_set = 60
+epochs_set = 40
 learning_rate = 0.1
-decay_rate = learning_rate / epochs_set
+#decay_rate = learning_rate / epochs_set
+decay_rate = 0.1
 momentum = 0.8
+
+batch_size = int(input_dim/100)
 
 sgd = SGD(learning_rate=learning_rate, momentum=momentum, decay=decay_rate, nesterov=False)
 
@@ -270,21 +275,22 @@ def exp_decay(epoch):
 # learning schedule callback
 loss_history = History()
 lr_rate = LearningRateScheduler(exp_decay)
-callbacks_list = [loss_history, lr_rate]
 
 # Callbacks
-#callbacks_list = [ModelCheckpoint('nuclei_model.h5', verbose=1, save_best_only=True), EarlyStopping(patience=2, monitor='val_loss'), TensorBoard(log_dir='logs')]
 callbacks_list = [loss_history, lr_rate]
 
-model_results = model.fit(X_train, y_train, validation_split=0.1, batch_size=32,
-                          epochs=epochs_set, callbacks=callbacks_list)
+#callbacks_list = [ModelCheckpoint('ImViA.h5', verbose=1, save_best_only=True), EarlyStopping(patience=2, monitor='val_loss'), TensorBoard(log_dir='logs')]
+
+#model_results = model.fit(X_train, y_train, validation_split=0.1, batch_size=32, epochs=epochs_set, callbacks=callbacks_list)
+
+model_results = model.fit(X_train, y_train, batch_size=batch_size, epochs=epochs_set, callbacks=callbacks_list, validation_data =(X_train, y_train))
 
 plt.figure(figsize=[10, 6])
 for key in model_results.history.keys():
     plt.plot(model_results.history[key], label=key)
 
 plt.legend()
-plt.savefig('demo4.jpg', bbox_inches='tight')
+plt.savefig('graphe_optimisation.jpg', bbox_inches='tight')
 
 preds_train = model.predict(X_train[:int(X_train.shape[0]*0.9)], verbose=1)
 y_true_train = y_train[:int(y_train.shape[0]*0.9)]
@@ -300,48 +306,30 @@ preds_test_t = (preds_test > 0.5).astype(np.uint8)
 
 
 # affichage des images
-
-i = 2
+#i = random.randint(0, len(preds_train_t))
+i = 5
 plt.figure(figsize=(8,8))
+
 plt.subplot(221)
-imshow(X_test[i])
+imshow(X_train[i])
 plt.title('Image to be Segmented')
+
 plt.subplot(222)
-plt.title('Segmentation Ground Truth NA')
+imshow(y_true_train[i])
+plt.title('Segmentation Ground Truth')
+
 plt.subplot(223)
-imshow(np.squeeze(preds_test[i]))
+imshow(np.squeeze(preds_train[i]))
 plt.title('Predicted Segmentation')
+
 plt.subplot(224)
-imshow(np.squeeze(preds_test_t[i]))
+plt.imshow(np.squeeze(preds_train_t[i]))
 plt.title('Thresholded Segmentation')
-plt.savefig('demo11.jpg', bbox_inches='tight')
+
+plt.savefig('Résultat.jpg', bbox_inches='tight')
 print("Evaluate on val data")
-
-'''
-
-ix = random.randint(0, len(preds_train_t))
-imshow(X_train[ix])
-plt.savefig('demo5.jpg', bbox_inches='tight')
-imshow(np.squeeze(y_train[ix]))
-plt.savefig('demo6.jpg', bbox_inches='tight')
-imshow(np.squeeze(preds_train_t[ix]))
-plt.savefig('demo7.jpg', bbox_inches='tight')
-
-# check sur des images aléatoires du dataset
-ix = random.randint(0, len(preds_val_t))
-imshow(X_train[int(X_train.shape[0]*0.9):][ix])
-plt.savefig('demo8.jpg', bbox_inches='tight')
-imshow(np.squeeze(y_train[int(y_train.shape[0]*0.9):][ix]))
-plt.savefig('demo9.jpg', bbox_inches='tight')
-imshow(np.squeeze(preds_val_t[ix]))
-plt.savefig('demo10.jpg', bbox_inches='tight')
-
-'''
 
 results = model.evaluate(X_train[int(X_train.shape[0]*0.9):], y_train[int(y_train.shape[0]*0.9):], batch_size=128)
 print("Test Loss:", results[0])
-print("Test Acc :", results[1]*100, "%")
-
-
-
+print("Test Accuracy :", results[1]*100, "%")
 
