@@ -15,6 +15,7 @@ from tensorflow.keras.layers import (Input, Lambda, Conv2D, Dropout, MaxPooling2
 from tensorflow.keras import Model
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, TensorBoard
 from tensorflow.keras.optimizers import SGD
+import random
 
 TRAIN_PATH = 'ims/train/'
 TEST_PATH = 'ims/test/'
@@ -263,8 +264,8 @@ model.compile(optimizer='sgd', loss='binary_crossentropy', metrics=['accuracy'])
 
 # define the learning rate change
 def exp_decay(epoch):
-    lrate = learning_rate * np.exp(-decay_rate*epoch)
-    return lrate
+    l_rate = learning_rate * np.exp(-decay_rate*epoch)
+    return l_rate
 
 # learning schedule callback
 loss_history = History()
@@ -291,42 +292,16 @@ preds_val = model.predict(X_train[int(X_train.shape[0]*0.9):], verbose=1)
 y_true_val = y_train[int(y_train.shape[0]*0.9):]
 preds_test = model.predict(X_test, verbose=1)
 
-#--------Jusqu'a ici tout marche +/- bien------------
-
 
 # Thresholding
 preds_train_t = (preds_train > 0.5).astype(np.uint8)
 preds_val_t = (preds_val > 0.5).astype(np.uint8)
 preds_test_t = (preds_test > 0.5).astype(np.uint8)
 
-'''
-# Show images
-def show_images(i, ti, orgimg, y_true, preds, preds_t):
-    plt.figure(figsize=(8,8))
-    plt.subplot(221)
-    imshow(orgimg[i])
-    plt.title('Image to be Segmented')
-    plt.subplot(222)
-    imshow(y_true[ti])
-    plt.title('Segmentation Ground Truth')
-    plt.subplot(223)
-    imshow(preds[ti])
-    plt.title('Predicted Segmentation')
-    plt.subplot(224)
-    imshow(preds_t[ti])
-    plt.title('Thresholded Segmentation')
-    plt.savefig('demo3.jpg', bbox_inches='tight')
-# On Train
-# train max 602
-i = 20
-show_images(i, i, X_train, y_true_train, preds_train, preds_train_t)
-# On Val
-# i = 603:669
-i = 660
-show_images(i, i-603,  X_train, y_true_val, preds_val, preds_val_t)
-# On Test
-# Ground Truths Not Available
-i = 0
+
+# affichage des images
+
+i = 2
 plt.figure(figsize=(8,8))
 plt.subplot(221)
 imshow(X_test[i])
@@ -334,17 +309,39 @@ plt.title('Image to be Segmented')
 plt.subplot(222)
 plt.title('Segmentation Ground Truth NA')
 plt.subplot(223)
-imshow(preds_test[i])
+imshow(np.squeeze(preds_test[i]))
 plt.title('Predicted Segmentation')
 plt.subplot(224)
-imshow(preds_test_t[i])
+imshow(np.squeeze(preds_test_t[i]))
 plt.title('Thresholded Segmentation')
-plt.show()
+plt.savefig('demo11.jpg', bbox_inches='tight')
 print("Evaluate on val data")
+
+'''
+
+ix = random.randint(0, len(preds_train_t))
+imshow(X_train[ix])
+plt.savefig('demo5.jpg', bbox_inches='tight')
+imshow(np.squeeze(y_train[ix]))
+plt.savefig('demo6.jpg', bbox_inches='tight')
+imshow(np.squeeze(preds_train_t[ix]))
+plt.savefig('demo7.jpg', bbox_inches='tight')
+
+# check sur des images aléatoires du dataset
+ix = random.randint(0, len(preds_val_t))
+imshow(X_train[int(X_train.shape[0]*0.9):][ix])
+plt.savefig('demo8.jpg', bbox_inches='tight')
+imshow(np.squeeze(y_train[int(y_train.shape[0]*0.9):][ix]))
+plt.savefig('demo9.jpg', bbox_inches='tight')
+imshow(np.squeeze(preds_val_t[ix]))
+plt.savefig('demo10.jpg', bbox_inches='tight')
+
+'''
+
 results = model.evaluate(X_train[int(X_train.shape[0]*0.9):], y_train[int(y_train.shape[0]*0.9):], batch_size=128)
 print("Test Loss:", results[0])
 print("Test Acc :", results[1]*100, "%")
-'''
+
 
 
 
