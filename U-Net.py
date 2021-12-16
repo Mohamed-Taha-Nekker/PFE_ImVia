@@ -2,6 +2,8 @@ import cv2 as cv
 import numpy as np
 import nibabel
 import os
+
+from tensorflow.python.keras.callbacks import History, LearningRateScheduler
 from tqdm import tqdm
 from skimage.io import imread, imshow
 from skimage.transform import resize
@@ -12,6 +14,7 @@ from tensorflow.keras.layers import (Input, Lambda, Conv2D, Dropout, MaxPooling2
 
 from tensorflow.keras import Model
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, TensorBoard
+from tensorflow.keras.optimizers import SGD
 
 TRAIN_PATH = 'ims/train/'
 TEST_PATH = 'ims/test/'
@@ -245,23 +248,42 @@ outputs = Conv2D(filters=1, kernel_size=(1,1),
                             activation='sigmoid')(c9)
 
 model = Model(inputs=[inputs], outputs=[outputs])
-model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-model.summary()
+
+epochs_set = 60
+learning_rate = 0.1
+decay_rate = learning_rate / epochs_set
+momentum = 0.8
+
+sgd = SGD(learning_rate=learning_rate, momentum=momentum, decay=decay_rate, nesterov=False)
+
+#model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+model.compile(optimizer='sgd', loss='binary_crossentropy', metrics=['accuracy'])
+
+#model.summary()
+
+# define the learning rate change
+def exp_decay(epoch):
+    lrate = learning_rate * np.exp(-decay_rate*epoch)
+    return lrate
+
+# learning schedule callback
+loss_history = History()
+lr_rate = LearningRateScheduler(exp_decay)
+callbacks_list = [loss_history, lr_rate]
 
 # Callbacks
-callbacks_list = [ModelCheckpoint('nuclei_model.h5', verbose=1, save_best_only=True),
-                  EarlyStopping(patience=2, monitor='val_loss'),
-                  TensorBoard(log_dir='logs')]
+#callbacks_list = [ModelCheckpoint('nuclei_model.h5', verbose=1, save_best_only=True), EarlyStopping(patience=2, monitor='val_loss'), TensorBoard(log_dir='logs')]
+callbacks_list = [loss_history, lr_rate]
 
 model_results = model.fit(X_train, y_train, validation_split=0.1, batch_size=32,
-                          epochs=25, callbacks=callbacks_list)
+                          epochs=epochs_set, callbacks=callbacks_list)
 
 plt.figure(figsize=[10, 6])
 for key in model_results.history.keys():
     plt.plot(model_results.history[key], label=key)
 
 plt.legend()
-plt.savefig('demo2.jpg', bbox_inches='tight')
+plt.savefig('demo4.jpg', bbox_inches='tight')
 
 preds_train = model.predict(X_train[:int(X_train.shape[0]*0.9)], verbose=1)
 y_true_train = y_train[:int(y_train.shape[0]*0.9)]
@@ -294,19 +316,14 @@ def show_images(i, ti, orgimg, y_true, preds, preds_t):
     imshow(preds_t[ti])
     plt.title('Thresholded Segmentation')
     plt.savefig('demo3.jpg', bbox_inches='tight')
-
-
 # On Train
 # train max 602
 i = 20
 show_images(i, i, X_train, y_true_train, preds_train, preds_train_t)
-
-
 # On Val
 # i = 603:669
 i = 660
 show_images(i, i-603,  X_train, y_true_val, preds_val, preds_val_t)
-
 # On Test
 # Ground Truths Not Available
 i = 0
@@ -323,8 +340,6 @@ plt.subplot(224)
 imshow(preds_test_t[i])
 plt.title('Thresholded Segmentation')
 plt.show()
-
-
 print("Evaluate on val data")
 results = model.evaluate(X_train[int(X_train.shape[0]*0.9):], y_train[int(y_train.shape[0]*0.9):], batch_size=128)
 print("Test Loss:", results[0])
