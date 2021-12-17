@@ -3,6 +3,8 @@ import numpy as np
 import nibabel
 import os
 
+import tensorflow as tf
+from keras.models import load_model
 from tensorflow.python.keras.callbacks import History, LearningRateScheduler
 from tqdm import tqdm
 from skimage.io import imread, imshow
@@ -30,9 +32,14 @@ test_ids = sorted(os.listdir(TEST_PATH))
 print(len(train_ids), len(test_ids))
 
 X_train = np.zeros((len(train_ids), IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS), dtype=np.uint8)
-y_train = np.zeros((len(train_ids), IMG_HEIGHT, IMG_WIDTH, 1), dtype=np.bool)
+y_train = np.zeros((len(train_ids), IMG_HEIGHT, IMG_WIDTH, 1), dtype=np.bool)   #to_categorical !!!!!!!!
+#y_train = np.zeros((len(train_ids), IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS), dtype=np.uint8)
 
 print('Resizing training images and masks')
+
+
+image_slices = np.zeros((len(train_ids), 10, IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS), dtype=np.uint8)
+
 for n, id_ in tqdm(enumerate(train_ids), total=len(train_ids)):
 
     path_im = TRAIN_PATH + id_ + '/images/'
@@ -60,7 +67,7 @@ for n, id_ in tqdm(enumerate(train_ids), total=len(train_ids)):
         msk = msk.get_fdata()
 
         # Parcourir chaque slice des images et masques
-
+        c = []
         for k in range(img.shape[2]):
             im = np.float32(img[:, :, k])
             ms = np.float32(msk[:, :, k])
@@ -80,10 +87,15 @@ for n, id_ in tqdm(enumerate(train_ids), total=len(train_ids)):
             colored_image = resize(colored_image, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True)
             X_train[n] = colored_image
 
+            image_slices[n][k] = colored_image
+
             colored_mask = cv.cvtColor(colored_mask, cv.COLOR_RGB2GRAY)
-            colored_mask = np.expand_dims(
-                resize(colored_mask, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True), axis=-1)
-            y_train[n] = colored_mask
+
+            colored_mask = np.expand_dims(resize(colored_mask, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True), axis=-1)
+            c=colored_mask
+
+
+        #y_train[n] = the_mask
 
 X_test = np.zeros((len(test_ids), IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS), dtype=np.uint8)
 sizes_test = []
@@ -229,7 +241,7 @@ c9 = Conv2D(filters=16, kernel_size=(3, 3),
             padding='same')(c9)
 # Outputs
 outputs = Conv2D(filters=1, kernel_size=(1, 1),
-                 activation='sigmoid')(c9)
+                 activation='sigmoid')(c9)  # filters = 4 , softmax
 
 model = Model(inputs=[inputs], outputs=[outputs])
 
@@ -246,10 +258,11 @@ sgd = SGD(learning_rate=learning_rate, momentum=momentum, decay=decay_rate, nest
 # model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 model.compile(optimizer='sgd', loss='binary_crossentropy', metrics=['accuracy'])
 
-
 # model.summary()
 
 # define the learning rate change
+
+
 def exp_decay(epoch):
     l_rate = learning_rate * np.exp(-decay_rate * epoch)
     return l_rate
@@ -260,11 +273,11 @@ loss_history = History()
 lr_rate = LearningRateScheduler(exp_decay)
 
 # Callbacks
-callbacks_list = [loss_history, lr_rate]
+callbacks_list = [ModelCheckpoint('ImViA.h5', verbose=1, save_best_only=True), loss_history, lr_rate]
 
-# callbacks_list = [ModelCheckpoint('ImViA.h5', verbose=1, save_best_only=True), EarlyStopping(patience=2, monitor='val_loss'), TensorBoard(log_dir='logs')]
+#callbacks_list = [ModelCheckpoint('ImViA.h5', verbose=1, save_best_only=True), EarlyStopping(patience=2, monitor='val_loss'), TensorBoard(log_dir='logs')]
 
-# model_results = model.fit(X_train, y_train, validation_split=0.1, batch_size=32, epochs=epochs_set, callbacks=callbacks_list)
+#model_results = model.fit(X_train, y_train, validation_split=0.1, batch_size=batch_size, epochs=epochs_set, callbacks=callbacks_list)
 
 model_results = model.fit(X_train, y_train, batch_size=batch_size, epochs=epochs_set, callbacks=callbacks_list,
                           validation_data=(X_train, y_train))
@@ -274,7 +287,7 @@ for key in model_results.history.keys():
     plt.plot(model_results.history[key], label=key)
 
 plt.legend()
-plt.savefig('graphe_optimisation.jpg', bbox_inches='tight')
+plt.savefig('Graphe_optimisation.jpg', bbox_inches='tight')
 
 preds_train = model.predict(X_train[:int(X_train.shape[0] * 0.9)], verbose=1)
 y_true_train = y_train[:int(y_train.shape[0] * 0.9)]
@@ -287,18 +300,17 @@ preds_train_t = (preds_train > 0.5).astype(np.uint8)
 preds_val_t = (preds_val > 0.5).astype(np.uint8)
 preds_test_t = (preds_test > 0.5).astype(np.uint8)
 
-# affichage des images
+# Affichage des images
 i = random.randint(0, len(preds_train_t))
-# i = 5
 plt.figure(figsize=(8, 8))
 
 plt.subplot(221)
 imshow(X_train[i])
-plt.title('Image to be Segmented')
+plt.title('Image')
 
 plt.subplot(222)
 imshow(y_true_train[i])
-plt.title('Segmentation Ground Truth')
+plt.title('Mask')
 
 plt.subplot(223)
 plt.imshow(np.squeeze(preds_train[i]))
