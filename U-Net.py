@@ -67,7 +67,7 @@ for n, id_ in tqdm(enumerate(train_ids), total=len(train_ids)):
         msk = msk.get_fdata()
 
         # Parcourir chaque slice des images et masques
-        c = []
+        #c = []
         for k in range(img.shape[2]):
             im = np.float32(img[:, :, k])
             ms = np.float32(msk[:, :, k])
@@ -87,15 +87,15 @@ for n, id_ in tqdm(enumerate(train_ids), total=len(train_ids)):
             colored_image = resize(colored_image, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True)
             X_train[n] = colored_image
 
-            image_slices[n][k] = colored_image
+            #image_slices[n][k] = colored_image
 
             colored_mask = cv.cvtColor(colored_mask, cv.COLOR_RGB2GRAY)
 
             colored_mask = np.expand_dims(resize(colored_mask, (IMG_HEIGHT, IMG_WIDTH), mode='constant', preserve_range=True), axis=-1)
-            c=colored_mask
+            #c=colored_mask
 
 
-        #y_train[n] = the_mask
+        y_train[n] = colored_mask
 
 X_test = np.zeros((len(test_ids), IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS), dtype=np.uint8)
 sizes_test = []
@@ -241,7 +241,7 @@ c9 = Conv2D(filters=16, kernel_size=(3, 3),
             padding='same')(c9)
 # Outputs
 outputs = Conv2D(filters=1, kernel_size=(1, 1),
-                 activation='sigmoid')(c9)  # filters = 4 , softmax
+                 activation='softmax')(c9)  # filters = 4 , softmax
 
 model = Model(inputs=[inputs], outputs=[outputs])
 
